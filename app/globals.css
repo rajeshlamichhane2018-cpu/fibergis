@@ -12,3 +12,17 @@ body,
   height: 100vh;
   width: 100%;
 }
+
+.leaflet-control-geosearch form input {
+  color: black !important;
+  font-size: 14px;
+  padding: 8px !important;
+}
+
+.leaflet-control-geosearch form {
+  background: white !important;
+}
+
+.leaflet-control-geosearch .results {
+  color: black !important;
+}

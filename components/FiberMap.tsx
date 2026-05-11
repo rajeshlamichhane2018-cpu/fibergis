@@ -1,23 +1,110 @@
 "use client";
 
-import { useState } from "react";
-
+import { useState, useEffect, useRef } from "react";
 import L from "leaflet";
 
 import "leaflet/dist/leaflet.css";
 import "leaflet-draw/dist/leaflet.draw.css";
+import "leaflet-geosearch/dist/geosearch.css";
 
 import {
   MapContainer,
   TileLayer,
   FeatureGroup,
+  useMap,
 } from "react-leaflet";
 
 import { EditControl } from "react-leaflet-draw";
 
-// =========================
-// Custom Marker Icons
-// =========================
+import {
+  GeoSearchControl,
+  OpenStreetMapProvider,
+} from "leaflet-geosearch";
+
+import { supabase } from "@/lib/supabase";
+
+// ================================
+// Load Routes From Supabase
+// ================================
+
+function LoadRoutes({ setRoutes }: any) {
+  const map = useMap();
+
+  useEffect(() => {
+    const fetchRoutes = async () => {
+      const { data, error } = await supabase
+        .from("fiber_routes")
+        .select("*");
+
+      if (error) {
+        console.log(error);
+        return;
+      }
+
+      setRoutes(data);
+      console.log("ROUTES:", data);
+
+      data.forEach((route: any) => {
+        const layer = L.geoJSON(route.geojson);
+
+        layer.eachLayer((l: any) => {
+          if (route.fiber_type) {
+            l.bindPopup(`
+              <div>
+                <h3>${route.route_name || "Unnamed Route"}</h3>
+                <p>Type: ${route.fiber_type}</p>
+                <p>Cores: ${route.core_count}</p>
+              </div>
+            `);
+          }
+
+          if (route.marker_type) {
+            l.bindPopup(`
+              <div>
+                <b>${route.marker_type}</b>
+              </div>
+            `);
+          }
+        });
+
+        layer.addTo(map);
+      });
+    };
+
+    fetchRoutes();
+  }, [map, setRoutes]);
+
+  return null;
+}
+
+// ================================
+// Search Component
+// ================================
+
+function SearchField() {
+  const map = useMap();
+
+  useEffect(() => {
+    const provider = new OpenStreetMapProvider();
+
+    // @ts-ignore
+    const searchControl = new GeoSearchControl({
+      provider,
+    });
+
+    map.addControl(searchControl);
+
+    return () => {
+      map.removeControl(searchControl);
+    };
+  }, [map]);
+
+  return null;
+}
+
+// ================================
+// Marker Icons
+// ================================
 
 const redIcon = new L.Icon({
   iconUrl:
@@ -52,16 +139,65 @@ const greenIcon = new L.Icon({
   iconAnchor: [12, 41],
 });
 
+// ================================
+// Save Route
+// ================================
+
+const saveRoute = async (
+  layer: any,
+  extraData: any = {}
+) => {
+  const geojson = layer.toGeoJSON();
+
+  const { error } = await supabase
+    .from("fiber_routes")
+    .insert([
+      {
+        geojson: geojson,
+        route_name: extraData.routeName || null,
+        fiber_type: extraData.fiberType || null,
+        core_count: extraData.coreCount || null,
+        marker_type: extraData.markerType || null,
+      },
+    ]);
+
+  if (error) {
+    console.log(error);
+  } else {
+    console.log("Saved");
+  }
+};
+
+// ================================
+// Main Map
+// ================================
+
 export default function FiberMap() {
+  const [routes, setRoutes] = useState<any[]>([]);
+  const mapRef = useRef<any>(null);
 
-  const [routeInfo, setRouteInfo] = useState<any>(null);
+const deleteRoute = async (id: string) => {
+  await supabase
+    .from("fiber_routes")
+    .delete()
+    .eq("id", id);
 
-  // =========================
-  // Draw Created
-  // =========================
+  setRoutes(routes.filter((r) => r.id !== id));
+};
+
+const zoomToRoute = (route: any) => {
+  if (!mapRef.current) return;
+
+  if (route.geometry?.coordinates) {
+    const coords = route.geometry.coordinates.map(
+      (c: any) => [c[1], c[0]]
+    );
+
+    mapRef.current.fitBounds(coords);
+  }
+};
 
   const handleCreated = (e: any) => {
-
     const layer = e.layer;
 
     // =========================
@@ -69,224 +205,195 @@ export default function FiberMap() {
     // =========================
 
     if (e.layerType === "polyline") {
+      const routeName =
+        prompt("Enter Route Name") ||
+        "Unnamed Route";
 
-     const routeName =
-  prompt("Enter Route Name") || "Unnamed Route";
+      const fiberType =
+        prompt(
+          "Fiber Type (Trunk / Distribution / Drop)"
+        ) || "distribution";
 
-const fiberType =
-  prompt(
-    "Fiber Type (Trunk / Distribution / Drop)"
-  ) || "distribution";
-
-const coreCount =
-  prompt("Core Count") || "12";
+      const coreCount =
+        prompt("Core Count") || "12";
 
       let lineColor = "#2563eb";
 
-      // Trunk
-      if (fiberType?.toLowerCase() === "trunk") {
+      if (
+        fiberType.toLowerCase() === "trunk"
+      ) {
         lineColor = "#dc2626";
       }
 
-      // Distribution
-      if (fiberType?.toLowerCase() === "distribution") {
-        lineColor = "#2563eb";
-      }
-
-      // Drop
-      if (fiberType?.toLowerCase() === "drop") {
+      if (
+        fiberType.toLowerCase() === "drop"
+      ) {
         lineColor = "#16a34a";
       }
 
-      // Route Style
       layer.setStyle({
         color: lineColor,
         weight: 5,
       });
 
-      // Route Tooltip
-      layer.bindTooltip(
-        `${routeName} (${fiberType})`,
-        {
-          permanent: true,
-          direction: "center",
-        }
-      );
-
-      // Route Popup
       layer.bindPopup(`
-        <div style="min-width:220px">
-
-          <h3>
-            <strong>${routeName}</strong>
-          </h3>
-
-          <p>
-            <strong>Type:</strong>
-            ${fiberType}
-          </p>
-
-          <p>
-            <strong>Cores:</strong>
-            ${coreCount}
-          </p>
-
+        <div style="min-width:200px">
+          <h3><b>${routeName}</b></h3>
+          <p>Type: ${fiberType}</p>
+          <p>Cores: ${coreCount}</p>
         </div>
       `);
 
-      const geojson = layer.toGeoJSON();
-
-      setRouteInfo({
+      saveRoute(layer, {
         routeName,
         fiberType,
         coreCount,
-        geojson,
-      });
-
-      console.log({
-        routeName,
-        fiberType,
-        coreCount,
-        geojson,
       });
     }
 
     // =========================
-    // Joint Marker
+    // Marker
     // =========================
 
     if (e.layerType === "marker") {
+      const markerType =
+        prompt(
+          "Marker Type (Pole / Splitter / Customer)"
+        ) || "Pole";
 
-      const jointName =
-  prompt("Joint Box Name") || "Unnamed Joint";
-
-const jointType =
-  prompt(
-    "Joint Type (Main / Distribution / Splitter)"
-  ) || "distribution";
-
-const note =
-  prompt("Note") || "No note added";
-
-      // Main Joint
-      if (jointType?.toLowerCase() === "main") {
+      if (
+        markerType.toLowerCase() === "pole"
+      ) {
         layer.setIcon(redIcon);
       }
 
-      // Distribution Joint
-      if (jointType?.toLowerCase() === "distribution") {
+      if (
+        markerType.toLowerCase() === "splitter"
+      ) {
         layer.setIcon(blueIcon);
       }
 
-      // Splitter
-      if (jointType?.toLowerCase() === "splitter") {
+      if (
+        markerType.toLowerCase() === "customer"
+      ) {
         layer.setIcon(greenIcon);
       }
 
-      // Permanent Label
-      layer.bindTooltip(
-        `${jointName} (${jointType})`,
-        {
-          permanent: true,
-          direction: "top",
-          offset: [0, -20],
-        }
-      );
-
-      // Popup
       layer.bindPopup(`
-        <div style="min-width:220px">
-
-          <h3>
-            <strong>${jointName}</strong>
-          </h3>
-
-          <p>
-            <strong>Type:</strong>
-            ${jointType}
-          </p>
-
-          <p>
-            <strong>Note:</strong>
-            ${note}
-          </p>
-
+        <div>
+          <b>${markerType}</b>
         </div>
       `);
 
-      console.log({
-        jointName,
-        jointType,
-        note,
+      saveRoute(layer, {
+        markerType,
       });
     }
   };
 
   return (
-    <div className="relative h-full w-full">
+    <div className="flex">
+      {/* Sidebar */}
 
-      {/* Route Info Panel */}
+      <div className="w-80 h-screen bg-black text-white p-5 overflow-y-auto">
 
-      {routeInfo && (
-        <div className="absolute top-4 right-4 z-[2000] bg-white shadow-xl rounded-xl p-4 w-72">
+        <h1 className="text-3xl font-bold mb-6">
+          Fiber GIS
+        </h1>
 
-          <h2 className="text-lg font-bold mb-3">
-            Fiber Route
-          </h2>
+        <div className="space-y-3 mb-8">
 
-          <div className="space-y-2 text-sm">
+          <button className="w-full bg-blue-600 p-3 rounded-xl font-semibold">
+            Add Fiber Route
+          </button>
 
-            <p>
-              <strong>Name:</strong>{" "}
-              {routeInfo.routeName}
-            </p>
+          <button className="w-full bg-green-600 p-3 rounded-xl font-semibold">
+            Add Joint Box
+          </button>
 
-            <p>
-              <strong>Type:</strong>{" "}
-              {routeInfo.fiberType}
-            </p>
+          <button className="w-full bg-yellow-500 text-black p-3 rounded-xl font-semibold">
+            Add Splitter
+          </button>
 
-            <p>
-              <strong>Cores:</strong>{" "}
-              {routeInfo.coreCount}
-            </p>
+          <button className="w-full bg-purple-600 p-3 rounded-xl font-semibold">
+            Add Pole
+          </button>
 
-          </div>
         </div>
-      )}
 
-      {/* MAP */}
+        <h2 className="text-2xl font-bold mb-4">
+          Saved Routes
+        </h2>
 
-      <MapContainer
-        center={[27.7172, 85.324]}
-        zoom={13}
-        style={{
-          height: "100%",
-          width: "100%",
-        }}
-      >
+        <div className="space-y-4">
 
-        <TileLayer
-          url="https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png"
-        />
+          {routes.map((route: any) => (
+            <div
+              key={route.id}
+              className="bg-slate-900 p-4 rounded-xl border border-slate-800"
+            >
+              <h3 className="font-bold text-lg">
+                {route.route_name || "Unnamed"}
+              </h3>
 
-        <FeatureGroup>
+              <p className="text-sm text-gray-300">
+                {route.fiber_type ||
+                  route.marker_type ||
+                  "Marker"}
+              </p>
+            </div>
+          ))}
 
-          <EditControl
-            position="topright"
-            onCreated={handleCreated}
-            draw={{
-              rectangle: false,
-              circle: false,
-              circlemarker: false,
-              polygon: false,
-            }}
+        </div>
+      </div>
+
+      {/* Map */}
+
+      <div className="flex-1">
+
+       <MapContainer
+  ref={mapRef}
+  center={[27.7172, 85.324]}
+  zoom={13}
+  style={{ height: "100vh", width: "100%" }}
+>
+
+          {/* Load Routes */}
+
+          <LoadRoutes setRoutes={setRoutes} />
+
+          {/* Search */}
+
+          <SearchField />
+
+          {/* Satellite Map */}
+
+          <TileLayer
+            attribution="&copy; Google"
+            url="https://{s}.google.com/vt/lyrs=y&x={x}&y={y}&z={z}"
+            subdomains={["mt0", "mt1", "mt2", "mt3"]}
           />
 
-        </FeatureGroup>
+          {/* Drawing */}
 
-      </MapContainer>
+          <FeatureGroup>
+            <EditControl
+              position="topright"
+              onCreated={handleCreated}
+              draw={{
+                rectangle: true,
+                polyline: true,
+                polygon: true,
+                circle: true,
+                marker: true,
+                circlemarker: false,
+              }}
+            />
+          </FeatureGroup>
 
+        </MapContainer>
+
+      </div>
     </div>
   );
 }

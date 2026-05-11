@@ -23,9 +23,12 @@ export default function Home() {
               Login
             </button>
 
-            <button className="px-4 py-2 text-sm rounded-xl bg-blue-600 hover:bg-blue-500 transition shadow-lg shadow-blue-500/30">
-              Open Dashboard
-            </button>
+            <a
+  href="/dashboard"
+  className="px-4 py-2 text-sm rounded-xl bg-blue-600 hover:bg-blue-500 transition shadow-lg inline-block"
+>
+  Open Dashboard
+</a>
           </div>
         </div>
       </header>
