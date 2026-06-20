@@ -3,15 +3,19 @@ generator client {
 }
 
 datasource db {
-  provider = "postgresql"
-  url      = env("DATABASE_URL")
+  provider  = "postgresql"
+  url       = env("DATABASE_URL")
+  directUrl = env("DIRECT_URL")
 }
 
 model FiberRoute {
-  id        String   @id @default(cuid())
-  name      String
-  type      String
-  note      String?
-  geojson   Json
-  createdAt DateTime @default(now())
+  id          String   @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
+  route_name  String?
+  fiber_type  String?
+  core_count  String?
+  marker_type String?
+  geojson     Json
+  created_at  DateTime @default(now()) @db.Timestamptz(6)
+
+  @@map("fiber_routes")
 }
